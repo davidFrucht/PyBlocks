@@ -4,13 +4,12 @@ import { BlockEditor } from './components/BlockEditor'
 import { CodeEditor } from './components/CodeEditor'
 import { Toolbar, type BackendStatus } from './components/Toolbar'
 import { OutputPanel } from './components/OutputPanel'
+import { workspaceToXml, xmlToWorkspace } from './services/sync-manager'
 import {
-  workspaceToXml,
-  xmlToWorkspace,
   saveToLocalStorage,
   loadFromLocalStorage,
   clearLocalStorage
-} from './services/sync-manager'
+} from './services/storage.service'
 import {
   executeCode,
   validateCode,
@@ -18,6 +17,8 @@ import {
   type ExecuteResult
 } from './services/backend.service'
 import { EXAMPLES, type Example } from './services/examples'
+import { LESSONS, type Lesson } from './services/lessons'
+import { LessonModal } from './components/LessonModal'
 import type { Project } from './types'
 
 // Side-effect: registers custom blocks with Blockly
@@ -35,6 +36,7 @@ export default function App(): JSX.Element {
   const [validationLine, setValidationLine] = useState<number | null>(null)
   const [splitPercent, setSplitPercent] = useState(50)
   const [isDragging, setIsDragging] = useState(false)
+  const [lessonsOpen, setLessonsOpen] = useState(false)
 
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null)
   const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -209,6 +211,14 @@ export default function App(): JSX.Element {
     setRunResult(null)
   }, [pythonCode])
 
+  // ── Load lesson starter ────────────────────────────────────────────────────
+  const handleLoadLesson = useCallback((lesson: Lesson) => {
+    if (!workspaceRef.current) return
+    xmlToWorkspace(workspaceRef.current, lesson.starterXml)
+    setIsSaved(false)
+    setRunResult(null)
+  }, [])
+
   // ── Menu IPC listeners ─────────────────────────────────────────────────────
   useEffect(() => {
     window.api.onMenuNew(handleNew)
@@ -226,6 +236,7 @@ export default function App(): JSX.Element {
         onExport={handleExport}
         onRun={handleRun}
         onLoadExample={handleLoadExample}
+        onOpenLessons={() => setLessonsOpen(true)}
         isSaved={isSaved}
         isRunning={isRunning}
         backendStatus={backendStatus}
@@ -270,6 +281,14 @@ export default function App(): JSX.Element {
           />
         </div>
       </div>
+
+      {lessonsOpen && (
+        <LessonModal
+          lessons={LESSONS}
+          onLoadStarter={handleLoadLesson}
+          onClose={() => setLessonsOpen(false)}
+        />
+      )}
 
       <OutputPanel
         result={runResult}

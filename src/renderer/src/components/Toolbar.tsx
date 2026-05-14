@@ -9,6 +9,7 @@ interface ToolbarProps {
   onExport: () => void
   onRun: () => void
   onLoadExample: (example: Example) => void
+  onOpenLessons: () => void
   isSaved: boolean
   isRunning: boolean
   backendStatus: BackendStatus
@@ -33,6 +34,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onExport,
   onRun,
   onLoadExample,
+  onOpenLessons,
   isSaved,
   isRunning,
   backendStatus,
@@ -73,6 +75,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
       >
         Export .py
+      </button>
+
+      {/* Lessons button */}
+      <button
+        onClick={onOpenLessons}
+        className="px-3 py-1 text-xs bg-purple-700 hover:bg-purple-600 text-white rounded transition-colors"
+      >
+        📚 Lessons
       </button>
 
       {/* Examples dropdown */}

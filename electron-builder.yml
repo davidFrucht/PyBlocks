@@ -1,0 +1,42 @@
+appId: com.davidfrucht.pyblocks
+productName: PyBlocks
+copyright: Copyright © 2026 David Frucht
+
+directories:
+  buildResources: build
+  output: dist-app
+
+files:
+  - out/**
+  - backend/**
+  - "!backend/__pycache__/**"
+  - "!backend/.venv/**"
+  - node_modules/**
+  - "!node_modules/.cache/**"
+  - "!node_modules/.bin/**"
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.education
+  # icon: build/icon.icns   # add a 512x512 .icns to enable custom icon
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon: build/icon.ico    # add a 256x256 .ico to enable custom icon
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+linux:
+  target:
+    - AppImage
+  category: Education
