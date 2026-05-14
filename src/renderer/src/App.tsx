@@ -2,11 +2,18 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import * as Blockly from 'blockly'
 import { BlockEditor } from './components/BlockEditor'
 import { CodeEditor } from './components/CodeEditor'
-import { Toolbar } from './components/Toolbar'
+import { Toolbar, type BackendStatus } from './components/Toolbar'
+import { OutputPanel } from './components/OutputPanel'
 import { workspaceToXml, xmlToWorkspace } from './services/sync-manager'
+import {
+  executeCode,
+  validateCode,
+  isBackendReady,
+  type ExecuteResult
+} from './services/backend.service'
 import type { Project } from './types'
 
-// Import block definitions (side-effect: registers blocks with Blockly)
+// Side-effect import: registers custom blocks with Blockly
 import './services/blockly-config'
 
 const EMPTY_XML = '<xml xmlns="https://developers.google.com/blockly/xml"></xml>'
@@ -14,12 +21,58 @@ const EMPTY_XML = '<xml xmlns="https://developers.google.com/blockly/xml"></xml>
 export default function App(): JSX.Element {
   const [pythonCode, setPythonCode] = useState<string>('')
   const [isSaved, setIsSaved] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>('connecting')
+  const [runResult, setRunResult] = useState<ExecuteResult | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null)
+  const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Poll for backend readiness
+  useEffect(() => {
+    let cancelled = false
+    const poll = async (): Promise<void> => {
+      const ready = await isBackendReady()
+      if (cancelled) return
+      if (ready) {
+        setBackendStatus('ready')
+      } else {
+        setTimeout(poll, 2000)
+      }
+    }
+    poll()
+    // After 30s without success, mark as error
+    const giveUp = setTimeout(() => {
+      if (!cancelled) setBackendStatus('error')
+    }, 30000)
+    return () => {
+      cancelled = true
+      clearTimeout(giveUp)
+    }
+  }, [])
+
+  // Validate code 600ms after it changes
+  const scheduleValidation = useCallback((code: string) => {
+    if (validateTimerRef.current) clearTimeout(validateTimerRef.current)
+    if (!code.trim() || backendStatus !== 'ready') {
+      setValidationError(null)
+      return
+    }
+    validateTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await validateCode(code)
+        setValidationError(result.valid ? null : (result.error ?? 'Syntax error'))
+      } catch {
+        // backend not reachable — ignore silently
+      }
+    }, 600)
+  }, [backendStatus])
 
   const handleCodeChange = useCallback((code: string) => {
     setPythonCode(code)
     setIsSaved(false)
-  }, [])
+    scheduleValidation(code)
+  }, [scheduleValidation])
 
   const handleWorkspaceReady = useCallback((ws: Blockly.WorkspaceSvg) => {
     workspaceRef.current = ws
@@ -31,6 +84,8 @@ export default function App(): JSX.Element {
       workspaceRef.current.clear()
       setPythonCode('')
       setIsSaved(false)
+      setRunResult(null)
+      setValidationError(null)
     }
   }, [])
 
@@ -55,21 +110,32 @@ export default function App(): JSX.Element {
     await window.api.exportPython(pythonCode)
   }, [pythonCode])
 
-  const handleRun = useCallback(() => {
-    // Phase 2: send to FastAPI backend
-    alert('Run feature coming in Phase 2!\n\nFor now, export the .py file and run it in your terminal.')
-  }, [])
+  const handleRun = useCallback(async () => {
+    if (!pythonCode || isRunning || backendStatus !== 'ready') return
+    setIsRunning(true)
+    setRunResult(null)
+    try {
+      const result = await executeCode(pythonCode)
+      setRunResult(result)
+    } catch (err) {
+      setRunResult({
+        stdout: '',
+        stderr: err instanceof Error ? err.message : 'Could not reach backend.',
+        success: false
+      })
+    } finally {
+      setIsRunning(false)
+    }
+  }, [pythonCode, isRunning, backendStatus])
 
-  const handleOpen = useCallback(
-    (_: unknown, data: unknown) => {
-      if (!workspaceRef.current) return
-      const project = data as Project
-      xmlToWorkspace(workspaceRef.current, project.blocklyXml || EMPTY_XML)
-      setPythonCode(project.pythonCode || '')
-      setIsSaved(true)
-    },
-    []
-  )
+  const handleOpen = useCallback((_: unknown, data: unknown) => {
+    if (!workspaceRef.current) return
+    const project = data as Project
+    xmlToWorkspace(workspaceRef.current, project.blocklyXml || EMPTY_XML)
+    setPythonCode(project.pythonCode || '')
+    setIsSaved(true)
+    setRunResult(null)
+  }, [])
 
   useEffect(() => {
     window.api.onMenuNew(handleNew)
@@ -87,7 +153,10 @@ export default function App(): JSX.Element {
         onExport={handleExport}
         onRun={handleRun}
         isSaved={isSaved}
+        isRunning={isRunning}
+        backendStatus={backendStatus}
       />
+
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Blockly */}
         <div className="w-1/2 border-r border-gray-700 overflow-hidden">
@@ -101,9 +170,16 @@ export default function App(): JSX.Element {
           <CodeEditor
             code={pythonCode}
             readOnly={true}
+            validationError={validationError}
           />
         </div>
       </div>
+
+      <OutputPanel
+        result={runResult}
+        isRunning={isRunning}
+        validationError={validationError}
+      />
     </div>
   )
 }

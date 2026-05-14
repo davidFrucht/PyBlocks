@@ -6,21 +6,25 @@ interface CodeEditorProps {
   highlightLine?: number | null
   onChange?: (value: string) => void
   readOnly?: boolean
+  validationError?: string | null
 }
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({
   code,
   highlightLine,
   onChange,
-  readOnly = false
+  readOnly = false,
+  validationError
 }) => {
   return (
     <div className="flex flex-col h-full">
       <div className="bg-gray-900 text-gray-300 text-xs font-medium px-4 py-2 border-b border-gray-700 flex items-center justify-between">
         <span>Python</span>
-        {readOnly && (
+        {validationError ? (
+          <span className="text-xs text-red-400 truncate max-w-xs">{validationError}</span>
+        ) : readOnly ? (
           <span className="text-xs text-gray-500 italic">auto-generated from blocks</span>
-        )}
+        ) : null}
       </div>
       <div className="flex-1">
         <MonacoEditor

@@ -1,7 +1,29 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
+import { spawn, type ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { readFileSync, writeFileSync } from 'fs'
+
+let backendProcess: ChildProcess | null = null
+
+function startBackend(): void {
+  const backendDir = join(app.getAppPath(), 'backend')
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  backendProcess = spawn(python, ['app.py'], {
+    cwd: backendDir,
+    stdio: 'pipe'
+  })
+  backendProcess.on('error', (err) => {
+    console.warn('Backend failed to start:', err.message)
+  })
+}
+
+function stopBackend(): void {
+  if (backendProcess) {
+    backendProcess.kill()
+    backendProcess = null
+  }
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -85,6 +107,7 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+  startBackend()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -92,8 +115,11 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  stopBackend()
   if (process.platform !== 'darwin') app.quit()
 })
+
+app.on('will-quit', stopBackend)
 
 // IPC: save file dialog
 ipcMain.handle('dialog:save', async (_, { defaultName, content }) => {
