@@ -4,3 +4,22 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+
+/* Monaco error line highlight */
+.monaco-error-line {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+  border-left: 3px solid #ef4444 !important;
+}
+
+/* Resizable divider */
+.panel-divider {
+  width: 4px;
+  background: #374151;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.panel-divider:hover,
+.panel-divider.dragging {
+  background: #6366f1;
+}

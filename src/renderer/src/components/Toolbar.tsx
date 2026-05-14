@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useState, useRef, useEffect } from 'react'
+import type { Example } from '../services/examples'
 
 export type BackendStatus = 'connecting' | 'ready' | 'error'
 
@@ -7,9 +8,11 @@ interface ToolbarProps {
   onSave: () => void
   onExport: () => void
   onRun: () => void
+  onLoadExample: (example: Example) => void
   isSaved: boolean
   isRunning: boolean
   backendStatus: BackendStatus
+  examples: Example[]
 }
 
 const statusLabel: Record<BackendStatus, string> = {
@@ -29,10 +32,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSave,
   onExport,
   onRun,
+  onLoadExample,
   isSaved,
   isRunning,
-  backendStatus
+  backendStatus,
+  examples
 }) => {
+  const [examplesOpen, setExamplesOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!examplesOpen) return
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setExamplesOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [examplesOpen])
+
   return (
     <div className="flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
       <span className="text-white font-bold text-sm mr-4">🐢 PyBlocks</span>
@@ -55,6 +74,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       >
         Export .py
       </button>
+
+      {/* Examples dropdown */}
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setExamplesOpen((v) => !v)}
+          className="px-3 py-1 text-xs bg-indigo-700 hover:bg-indigo-600 text-white rounded transition-colors"
+        >
+          Examples ▾
+        </button>
+        {examplesOpen && (
+          <div className="absolute left-0 top-full mt-1 w-52 bg-gray-800 border border-gray-600 rounded shadow-lg z-50">
+            {examples.map((ex) => (
+              <button
+                key={ex.name}
+                onClick={() => { onLoadExample(ex); setExamplesOpen(false) }}
+                className="w-full text-left px-4 py-2 hover:bg-gray-700 transition-colors"
+              >
+                <div className="text-xs text-white font-medium">{ex.name}</div>
+                <div className="text-xs text-gray-400">{ex.description}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="flex-1" />
 

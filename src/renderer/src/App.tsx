@@ -4,16 +4,23 @@ import { BlockEditor } from './components/BlockEditor'
 import { CodeEditor } from './components/CodeEditor'
 import { Toolbar, type BackendStatus } from './components/Toolbar'
 import { OutputPanel } from './components/OutputPanel'
-import { workspaceToXml, xmlToWorkspace } from './services/sync-manager'
+import {
+  workspaceToXml,
+  xmlToWorkspace,
+  saveToLocalStorage,
+  loadFromLocalStorage,
+  clearLocalStorage
+} from './services/sync-manager'
 import {
   executeCode,
   validateCode,
   isBackendReady,
   type ExecuteResult
 } from './services/backend.service'
+import { EXAMPLES, type Example } from './services/examples'
 import type { Project } from './types'
 
-// Side-effect import: registers custom blocks with Blockly
+// Side-effect: registers custom blocks with Blockly
 import './services/blockly-config'
 
 const EMPTY_XML = '<xml xmlns="https://developers.google.com/blockly/xml"></xml>'
@@ -25,10 +32,17 @@ export default function App(): JSX.Element {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('connecting')
   const [runResult, setRunResult] = useState<ExecuteResult | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [validationLine, setValidationLine] = useState<number | null>(null)
+  const [splitPercent, setSplitPercent] = useState(50)
+  const [isDragging, setIsDragging] = useState(false)
+
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null)
   const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mainAreaRef = useRef<HTMLDivElement>(null)
+  const isDraggingRef = useRef(false)
 
-  // Poll for backend readiness
+  // ── Backend readiness poll ─────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
     const poll = async (): Promise<void> => {
@@ -41,43 +55,86 @@ export default function App(): JSX.Element {
       }
     }
     poll()
-    // After 30s without success, mark as error
     const giveUp = setTimeout(() => {
       if (!cancelled) setBackendStatus('error')
     }, 30000)
+    return () => { cancelled = true; clearTimeout(giveUp) }
+  }, [])
+
+  // ── Resizable divider ──────────────────────────────────────────────────────
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    isDraggingRef.current = true
+    setIsDragging(true)
+    e.preventDefault()
+  }, [])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current || !mainAreaRef.current) return
+      const rect = mainAreaRef.current.getBoundingClientRect()
+      const pct = ((e.clientX - rect.left) / rect.width) * 100
+      setSplitPercent(Math.max(25, Math.min(75, pct)))
+    }
+    const handleMouseUp = () => {
+      isDraggingRef.current = false
+      setIsDragging(false)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
     return () => {
-      cancelled = true
-      clearTimeout(giveUp)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
     }
   }, [])
 
-  // Validate code 600ms after it changes
+  // ── Validation (debounced 600ms) ───────────────────────────────────────────
   const scheduleValidation = useCallback((code: string) => {
     if (validateTimerRef.current) clearTimeout(validateTimerRef.current)
-    if (!code.trim() || backendStatus !== 'ready') {
-      setValidationError(null)
-      return
-    }
+    if (!code.trim()) { setValidationError(null); setValidationLine(null); return }
     validateTimerRef.current = setTimeout(async () => {
+      if (backendStatus !== 'ready') return
       try {
         const result = await validateCode(code)
         setValidationError(result.valid ? null : (result.error ?? 'Syntax error'))
+        setValidationLine(result.valid ? null : (result.line ?? null))
       } catch {
-        // backend not reachable — ignore silently
+        // Backend unreachable — ignore
       }
     }, 600)
   }, [backendStatus])
+
+  // ── Auto-save to localStorage (debounced 1s) ───────────────────────────────
+  const scheduleAutosave = useCallback((code: string) => {
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(() => {
+      if (workspaceRef.current) {
+        saveToLocalStorage(workspaceToXml(workspaceRef.current), code)
+      }
+    }, 1000)
+  }, [])
 
   const handleCodeChange = useCallback((code: string) => {
     setPythonCode(code)
     setIsSaved(false)
     scheduleValidation(code)
-  }, [scheduleValidation])
+    scheduleAutosave(code)
+  }, [scheduleValidation, scheduleAutosave])
 
   const handleWorkspaceReady = useCallback((ws: Blockly.WorkspaceSvg) => {
     workspaceRef.current = ws
+    // Restore last autosave silently
+    const saved = loadFromLocalStorage()
+    if (saved && saved.xml && saved.xml !== EMPTY_XML) {
+      try {
+        xmlToWorkspace(ws, saved.xml)
+        setPythonCode(saved.code)
+      } catch {
+        // Corrupted autosave — ignore
+      }
+    }
   }, [])
 
+  // ── File operations ────────────────────────────────────────────────────────
   const handleNew = useCallback(() => {
     if (!workspaceRef.current) return
     if (confirm('Start a new project? Unsaved changes will be lost.')) {
@@ -86,6 +143,8 @@ export default function App(): JSX.Element {
       setIsSaved(false)
       setRunResult(null)
       setValidationError(null)
+      setValidationLine(null)
+      clearLocalStorage()
     }
   }, [])
 
@@ -110,6 +169,7 @@ export default function App(): JSX.Element {
     await window.api.exportPython(pythonCode)
   }, [pythonCode])
 
+  // ── Run ────────────────────────────────────────────────────────────────────
   const handleRun = useCallback(async () => {
     if (!pythonCode || isRunning || backendStatus !== 'ready') return
     setIsRunning(true)
@@ -128,6 +188,7 @@ export default function App(): JSX.Element {
     }
   }, [pythonCode, isRunning, backendStatus])
 
+  // ── Open project ───────────────────────────────────────────────────────────
   const handleOpen = useCallback((_: unknown, data: unknown) => {
     if (!workspaceRef.current) return
     const project = data as Project
@@ -135,8 +196,20 @@ export default function App(): JSX.Element {
     setPythonCode(project.pythonCode || '')
     setIsSaved(true)
     setRunResult(null)
+    setValidationError(null)
+    setValidationLine(null)
   }, [])
 
+  // ── Load example ───────────────────────────────────────────────────────────
+  const handleLoadExample = useCallback((example: Example) => {
+    if (!workspaceRef.current) return
+    if (pythonCode && !confirm(`Load "${example.name}"? Current blocks will be replaced.`)) return
+    xmlToWorkspace(workspaceRef.current, example.xml)
+    setIsSaved(false)
+    setRunResult(null)
+  }, [pythonCode])
+
+  // ── Menu IPC listeners ─────────────────────────────────────────────────────
   useEffect(() => {
     window.api.onMenuNew(handleNew)
     window.api.onMenuSave(handleSave)
@@ -146,31 +219,54 @@ export default function App(): JSX.Element {
   }, [handleNew, handleSave, handleExport, handleRun, handleOpen])
 
   return (
-    <div className="flex flex-col h-screen bg-gray-800 text-white">
+    <div className="flex flex-col h-screen bg-gray-800 text-white select-none">
       <Toolbar
         onNew={handleNew}
         onSave={handleSave}
         onExport={handleExport}
         onRun={handleRun}
+        onLoadExample={handleLoadExample}
         isSaved={isSaved}
         isRunning={isRunning}
         backendStatus={backendStatus}
+        examples={EXAMPLES}
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div
+        ref={mainAreaRef}
+        className="flex flex-1 overflow-hidden"
+        style={{ cursor: isDragging ? 'col-resize' : undefined }}
+      >
         {/* Left: Blockly */}
-        <div className="w-1/2 border-r border-gray-700 overflow-hidden">
+        <div
+          className="overflow-hidden flex-shrink-0"
+          style={{
+            width: `${splitPercent}%`,
+            pointerEvents: isDragging ? 'none' : undefined
+          }}
+        >
           <BlockEditor
             onCodeChange={handleCodeChange}
             onWorkspaceReady={handleWorkspaceReady}
           />
         </div>
+
+        {/* Drag divider */}
+        <div
+          className={`panel-divider border-x border-gray-700${isDragging ? ' dragging' : ''}`}
+          onMouseDown={handleDividerMouseDown}
+        />
+
         {/* Right: Monaco */}
-        <div className="w-1/2 overflow-hidden">
+        <div
+          className="overflow-hidden flex-1"
+          style={{ pointerEvents: isDragging ? 'none' : undefined }}
+        >
           <CodeEditor
             code={pythonCode}
             readOnly={true}
             validationError={validationError}
+            errorLine={validationLine}
           />
         </div>
       </div>
@@ -179,6 +275,7 @@ export default function App(): JSX.Element {
         result={runResult}
         isRunning={isRunning}
         validationError={validationError}
+        onClear={() => setRunResult(null)}
       />
     </div>
   )
