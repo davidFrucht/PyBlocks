@@ -1,5 +1,7 @@
 import React, { useCallback } from 'react'
 import type { ExecuteResult } from '../services/backend.service'
+import type { TurtleCommand } from '../types'
+import { TurtleCanvas } from './TurtleCanvas'
 
 interface OutputPanelProps {
   result: ExecuteResult | null
@@ -12,95 +14,102 @@ export const OutputPanel: React.FC<OutputPanelProps> = ({
   result,
   isRunning,
   validationError,
-  onClear
+  onClear,
 }) => {
   const handleCopy = useCallback(() => {
     if (result?.stdout) navigator.clipboard.writeText(result.stdout)
   }, [result])
 
-  const header = (
-    <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 flex-shrink-0">
-      {result && (
-        <span className={`w-2 h-2 rounded-full ${result.success ? 'bg-green-500' : 'bg-red-500'}`} />
-      )}
-      <span className="text-xs text-gray-400 font-medium">Output</span>
-      {result?.mode === 'turtle' && (
-        <span className="text-xs text-blue-400 ml-1">turtle</span>
-      )}
-      <div className="flex-1" />
-      {result?.stdout && (
-        <button
-          onClick={handleCopy}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2"
-          title="Copy output"
-        >
-          Copy
-        </button>
-      )}
-      {result && (
-        <button
-          onClick={onClear}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2"
-          title="Clear output"
-        >
-          Clear
-        </button>
-      )}
-    </div>
-  )
+  const commands: TurtleCommand[] = result?.commands ?? []
+  const hasCanvas = commands.length > 0
+  const hasText = !!(result?.stdout || result?.stderr)
 
+  // ── Running ────────────────────────────────────────────────────────────────
   if (isRunning) {
     return (
-      <div className="h-28 bg-gray-950 border-t border-gray-700 flex flex-col overflow-hidden">
-        {header}
-        <div className="flex-1 flex items-center px-4">
-          <span className="text-gray-400 text-sm animate-pulse">Running…</span>
-        </div>
+      <div className="h-10 bg-gray-950 border-t border-gray-700 flex items-center px-4">
+        <span className="text-gray-400 text-sm animate-pulse">Running…</span>
       </div>
     )
   }
 
+  // ── Validation error (no run result yet) ──────────────────────────────────
   if (!result && validationError) {
     return (
-      <div className="h-28 bg-gray-950 border-t border-gray-700 flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 flex-shrink-0">
-          <span className="w-2 h-2 rounded-full bg-yellow-400" />
-          <span className="text-xs text-yellow-400 font-medium">Syntax problem</span>
-        </div>
-        <div className="flex-1 overflow-auto px-4 py-2">
-          <p className="text-sm text-red-300">{validationError}</p>
-          <p className="text-xs text-gray-500 mt-1">Fix this before running.</p>
-        </div>
+      <div className="h-16 bg-gray-950 border-t border-gray-700 px-4 py-2 overflow-auto">
+        <span className="text-xs text-yellow-400 font-semibold">Syntax problem: </span>
+        <span className="text-sm text-red-300">{validationError}</span>
       </div>
     )
   }
 
+  // ── Empty state ────────────────────────────────────────────────────────────
   if (!result) {
     return (
-      <div className="h-28 bg-gray-950 border-t border-gray-700 flex items-center px-4">
+      <div className="h-10 bg-gray-950 border-t border-gray-700 flex items-center px-4">
         <span className="text-gray-600 text-sm">Press ▶ Run to execute your code</span>
       </div>
     )
   }
 
-  const { stdout, stderr, success, mode, message } = result
-
-  return (
-    <div className="h-28 bg-gray-950 border-t border-gray-700 flex flex-col overflow-hidden">
-      {header}
-      <div className="flex-1 overflow-auto px-4 py-2 font-mono text-sm leading-relaxed">
-        {mode === 'turtle' && success ? (
-          <span className="text-blue-300">{message ?? '🐢 Turtle window opened!'}</span>
-        ) : (
-          <>
-            {stdout && <pre className="text-green-300 whitespace-pre-wrap">{stdout}</pre>}
-            {stderr && <pre className="text-red-400 whitespace-pre-wrap">{stderr}</pre>}
-            {!stdout && !stderr && success && (
-              <span className="text-gray-500">Program finished with no output.</span>
-            )}
-          </>
-        )}
+  // ── Console-only output (no canvas) ───────────────────────────────────────
+  if (!hasCanvas) {
+    return (
+      <div className="h-28 bg-gray-950 border-t border-gray-700 flex flex-col overflow-hidden">
+        <ConsoleHeader result={result} onCopy={handleCopy} onClear={onClear} />
+        <div className="flex-1 overflow-auto px-4 py-2 font-mono text-sm leading-relaxed">
+          {result.stdout && <pre className="text-green-300 whitespace-pre-wrap">{result.stdout}</pre>}
+          {result.stderr && <pre className="text-red-400 whitespace-pre-wrap">{result.stderr}</pre>}
+          {!result.stdout && !result.stderr && result.success && (
+            <span className="text-gray-500">Program finished with no output.</span>
+          )}
+        </div>
       </div>
+    )
+  }
+
+  // ── Canvas + optional console ─────────────────────────────────────────────
+  return (
+    <div className="flex flex-col bg-gray-950 border-t border-gray-700 overflow-hidden"
+      style={{ maxHeight: '480px' }}>
+      <TurtleCanvas commands={commands} />
+      {hasText && (
+        <div className="flex flex-col" style={{ maxHeight: '96px', minHeight: '40px' }}>
+          <ConsoleHeader result={result} onCopy={handleCopy} onClear={onClear} />
+          <div className="flex-1 overflow-auto px-4 py-1 font-mono text-sm">
+            {result.stdout && <pre className="text-green-300 whitespace-pre-wrap">{result.stdout}</pre>}
+            {result.stderr && <pre className="text-red-400 whitespace-pre-wrap">{result.stderr}</pre>}
+          </div>
+        </div>
+      )}
+      {!hasText && (
+        <div className="flex justify-end px-3 py-1">
+          <button onClick={onClear} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   )
 }
+
+// ── Shared console header ──────────────────────────────────────────────────────
+const ConsoleHeader: React.FC<{
+  result: ExecuteResult
+  onCopy: () => void
+  onClear: () => void
+}> = ({ result, onCopy, onClear }) => (
+  <div className="flex items-center gap-2 px-4 py-1 border-b border-gray-800 flex-shrink-0">
+    <span className={`w-2 h-2 rounded-full ${result.success ? 'bg-green-500' : 'bg-red-500'}`} />
+    <span className="text-xs text-gray-400 font-medium">Console</span>
+    <div className="flex-1" />
+    {result.stdout && (
+      <button onClick={onCopy} className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2">
+        Copy
+      </button>
+    )}
+    <button onClick={onClear} className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2">
+      Clear
+    </button>
+  </div>
+)

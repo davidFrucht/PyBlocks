@@ -1,11 +1,14 @@
+import type { TurtleCommand } from '../types'
+
 const BASE = 'http://127.0.0.1:8000'
 
 export interface ExecuteResult {
   stdout: string
   stderr: string
   success: boolean
-  mode?: 'output' | 'turtle'
+  mode?: 'output' | 'turtle' | 'canvas'
   message?: string
+  commands?: TurtleCommand[]
 }
 
 export interface ValidationResult {

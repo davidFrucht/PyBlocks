@@ -17,3 +17,11 @@ export interface ValidationResult {
   error?: string
   line?: number
 }
+
+export interface TurtleCommand {
+  cmd: string
+  n?: number
+  x?: number
+  y?: number
+  c?: string
+}
