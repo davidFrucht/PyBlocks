@@ -29,8 +29,9 @@ export function xmlToWorkspace(
   workspace: Blockly.WorkspaceSvg,
   xmlText: string
 ): void {
+  // Blockly v11 removed Xml.textToDom — use utils.xml.textToDom instead
+  const xml = Blockly.utils.xml.textToDom(xmlText)
   workspace.clear()
-  const xml = Blockly.Xml.textToDom(xmlText)
   Blockly.Xml.domToWorkspace(xml, workspace)
 }
 
